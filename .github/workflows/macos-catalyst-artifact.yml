@@ -30,7 +30,7 @@ jobs:
             exit 1
           fi
           sed -i '' 's/isFatal:errorData\[@"isFatal"\]/isFatal:[errorData[@"isFatal"] boolValue]/g' "$TARGET_FILE"
-          rg -n 'isFatal:' "$TARGET_FILE" | sed -n '1,20p'
+          grep -n 'isFatal:' "$TARGET_FILE" | head -n 20 || true
 
       - name: Install CocoaPods
         run: |
