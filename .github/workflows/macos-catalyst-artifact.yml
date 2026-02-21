@@ -1,0 +1,80 @@
+name: Build Mac Catalyst Artifact
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-mac-catalyst:
+    runs-on: macos-14
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Install CocoaPods
+        run: bundle exec pod install --project-directory=ios
+
+      - name: Build Mac Catalyst app (unsigned)
+        run: |
+          set -euxo pipefail
+          mkdir -p build
+          xcodebuild \
+            -workspace ios/BlueWallet.xcworkspace \
+            -scheme BlueWallet \
+            -configuration Release \
+            -destination 'platform=macOS,variant=Mac Catalyst' \
+            -derivedDataPath build/DerivedData \
+            -skipUnavailableActions \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            build | tee build/xcodebuild.log
+
+      - name: Package app artifact
+        id: package
+        run: |
+          set -euxo pipefail
+          mkdir -p build/artifact
+          APP_PATH="$(find build/DerivedData/Build/Products -type d -name '*.app' | grep -E '/(Ishmael|BlueWallet)\.app$' | head -n 1 || true)"
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH="$(find build/DerivedData/Build/Products -type d -name '*.app' | head -n 1 || true)"
+          fi
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app bundle found under DerivedData products." >&2
+            find build/DerivedData/Build/Products -maxdepth 4 -print || true
+            exit 1
+          fi
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" build/artifact/Ishmael-mac-catalyst-app.zip
+          echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Mac Catalyst app zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: ishmael-mac-catalyst-app
+          path: build/artifact/Ishmael-mac-catalyst-app.zip
+          retention-days: 14
+
+      - name: Upload xcodebuild log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: build/xcodebuild.log
+          retention-days: 14

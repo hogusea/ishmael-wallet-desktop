@@ -33,6 +33,14 @@ npm start
 - Select destination `My Mac (Designed for iPad)`
 - Run
 
+## No Local Xcode (Intel/Legacy macOS)
+Use GitHub Actions build artifact instead:
+1. Open GitHub repository: `https://github.com/hogusea/ishmael-wallet-desktop`
+2. Go to `Actions` -> `Build Mac Catalyst Artifact`
+3. Click `Run workflow`
+4. After completion, download artifact `ishmael-mac-catalyst-app`
+5. Unzip and run the app bundle
+
 ## Optional iOS Run
 ```bash
 npx react-native run-ios
@@ -41,6 +49,7 @@ npx react-native run-ios
 ## Notes
 - This repository is reset and rebuilt from BlueWallet-based source.
 - If macOS camera permission blocks QR scan, allow camera access in System Settings.
+- CI artifact build is unsigned for test usage.
 
 ## License
 MIT
