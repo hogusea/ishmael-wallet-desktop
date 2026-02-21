@@ -31,6 +31,18 @@ const DUPLICATE_WALLET_ERROR = 'This wallet has been previously imported.';
 const QR_ECHO_IGNORE_WINDOW_MS = 1500;
 
 const sanitizeImportText = (value: string) => value.replace(/\s+/g, '').trim();
+const normalizeWatchOnlySecret = (value: string) => {
+  let normalized = sanitizeImportText(value);
+  if (!normalized) return normalized;
+
+  if (/^bitcoin:/i.test(normalized)) {
+    const withoutScheme = normalized.replace(/^bitcoin:/i, '').replace(/^\/\//, '');
+    const [candidate] = withoutScheme.split('?');
+    if (candidate) normalized = candidate;
+  }
+
+  return normalized;
+};
 type ImportWatchOnlyOptions = {
   clearInputOnError?: boolean;
 };
@@ -40,7 +52,8 @@ const buildWatchOnlyWallet = (secret: string): WatchOnlyWallet | undefined => {
   wallet.setSecret(secret);
   wallet.init();
 
-  const isAllowedSecret = wallet.isHd() ? wallet.isXpubValid() : wallet.isAddressValid(secret);
+  const walletSecret = wallet.getSecret();
+  const isAllowedSecret = wallet.isHd() ? wallet.isXpubValid() : wallet.isAddressValid(walletSecret);
   if (!isAllowedSecret) return;
 
   // xpub wallets should be ready for PSBT export/import flow.
@@ -98,14 +111,14 @@ const ImportWallet = () => {
   }, [isPrivacyBlurEnabled, enableScreenProtect, disableScreenProtect]);
 
   const onBlur = useCallback(() => {
-    const sanitized = sanitizeImportText(importText);
+    const sanitized = normalizeWatchOnlySecret(importText);
     setImportText(sanitized);
     return sanitized;
   }, [importText]);
 
   const importWatchOnly = useCallback(
     async (value: string, options: ImportWatchOnlyOptions = {}) => {
-      const secret = sanitizeImportText(value);
+      const secret = normalizeWatchOnlySecret(value);
       if (!secret || isImporting) return;
 
       const wallet = buildWatchOnlyWallet(secret);
@@ -150,7 +163,7 @@ const ImportWallet = () => {
 
   const onBarScanned = useCallback(
     (value: string | { data: unknown }) => {
-      const scannedValue = sanitizeImportText(typeof value === 'string' ? value : String(value.data ?? ''));
+      const scannedValue = normalizeWatchOnlySecret(typeof value === 'string' ? value : String(value.data ?? ''));
       if (!scannedValue) return;
       recentQrScanRef.current = { value: scannedValue, at: Date.now() };
       importWatchOnly(scannedValue, { clearInputOnError: true });
@@ -159,7 +172,7 @@ const ImportWallet = () => {
   );
 
   const onScanButtonChangeText = useCallback((value: string) => {
-    const sanitizedValue = sanitizeImportText(value);
+    const sanitizedValue = normalizeWatchOnlySecret(value);
     const { value: recentValue, at } = recentQrScanRef.current;
     const isRecentQrEcho = sanitizedValue.length > 0 && sanitizedValue === recentValue && Date.now() - at <= QR_ECHO_IGNORE_WINDOW_MS;
 
@@ -233,7 +246,7 @@ const ImportWallet = () => {
               setImportText('');
             }}
             onPasteTapped={text => {
-              setImportText(sanitizeImportText(text));
+              setImportText(normalizeWatchOnlySecret(text));
               Keyboard.dismiss();
             }}
           />
