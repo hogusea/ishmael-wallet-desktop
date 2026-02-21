@@ -5,7 +5,7 @@ on:
 
 jobs:
   build-mac-catalyst:
-    runs-on: macos-14
+    runs-on: macos-13
     timeout-minutes: 90
 
     steps:
@@ -18,22 +18,26 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.2'
-          bundler-cache: true
-
       - name: Install JS dependencies
         run: npm ci
 
       - name: Install CocoaPods
-        run: bundle exec pod install --project-directory=ios
+        run: |
+          set -euxo pipefail
+          if ! command -v pod >/dev/null 2>&1; then
+            sudo gem install cocoapods -N
+          fi
+          pod --version
+          pod install --project-directory=ios
+
+      - name: Prepare build log
+        run: |
+          mkdir -p build
+          : > build/xcodebuild.log
 
       - name: Build Mac Catalyst app (unsigned)
         run: |
           set -euxo pipefail
-          mkdir -p build
           xcodebuild \
             -workspace ios/BlueWallet.xcworkspace \
             -scheme BlueWallet \
@@ -45,10 +49,9 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
-            build | tee build/xcodebuild.log
+            build | tee -a build/xcodebuild.log
 
       - name: Package app artifact
-        id: package
         run: |
           set -euxo pipefail
           mkdir -p build/artifact
@@ -62,7 +65,6 @@ jobs:
             exit 1
           fi
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" build/artifact/Ishmael-mac-catalyst-app.zip
-          echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Upload Mac Catalyst app zip
         uses: actions/upload-artifact@v4
