@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+      <key>method</key>
+      <string>app-store</string>
+      <key>signingStyle</key>
+      <string>manual</string>
+      <key>teamID</key>
+      <string>A7W54YZ4WU</string>
+      <key>uploadSymbols</key>
+      <true/>
+      <key>compileBitcode</key>
+      <false/>
+      <key>thinning</key>
+      <string>none</string>
+      <key>destination</key>
+      <string>export</string>
+      <key>provisioningProfiles</key>
+      <dict>
+          <key>io.hogusea.ishmael</key>
+          <string>match AppStore io.hogusea.ishmael</string>
+          <key>io.hogusea.ishmael.watch</key>
+          <string>match AppStore io.hogusea.ishmael.watch</string>
+          <key>io.hogusea.ishmael.watch.extension</key>
+          <string>match AppStore io.hogusea.ishmael.watch.extension</string>
+          <key>io.hogusea.ishmael.Stickers</key>
+          <string>match AppStore io.hogusea.ishmael.Stickers</string>
+          <key>io.hogusea.ishmael.MarketWidget</key>
+          <string>match AppStore io.hogusea.ishmael.MarketWidget</string>
+      </dict>
+  </dict>
+</plist>
