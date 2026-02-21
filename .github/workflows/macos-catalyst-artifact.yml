@@ -21,6 +21,17 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
+      - name: Patch React Native for Xcode 16 Catalyst
+        run: |
+          set -euxo pipefail
+          TARGET_FILE="node_modules/react-native/ReactCommon/react/runtime/platform/ios/ReactCommon/RCTInstance.mm"
+          if [ ! -f "$TARGET_FILE" ]; then
+            echo "Expected file not found: $TARGET_FILE" >&2
+            exit 1
+          fi
+          sed -i '' 's/isFatal:errorData\[@"isFatal"\]/isFatal:[errorData[@"isFatal"] boolValue]/g' "$TARGET_FILE"
+          rg -n 'isFatal:' "$TARGET_FILE" | sed -n '1,20p'
+
       - name: Install CocoaPods
         run: |
           set -euxo pipefail
