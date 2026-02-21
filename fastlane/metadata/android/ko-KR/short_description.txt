@@ -1,0 +1,1 @@
+Mobick(BMB) 감시 전용 지갑. PSBT 오프라인 서명과 KRW 시세 지원.

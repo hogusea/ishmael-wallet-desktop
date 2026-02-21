@@ -1,0 +1,7 @@
+Ishmael 7.2.4 업데이트
+
+- Mobick 기본값 점검 및 안정성 개선
+- KRW 표시를 KRW-BMB 시세 기준으로 수정
+- 트랜잭션 "View in Browser" 링크 처리 개선
+- 일부 기기에서 알림 초기화 오류(TypeError) 방어 처리
+- 앱 브랜딩 및 스토어 정보 정리
