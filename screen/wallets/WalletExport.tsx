@@ -19,6 +19,7 @@ import useAppState from '../../hooks/useAppState';
 import loc from '../../loc';
 import { WalletExportStackParamList } from '../../navigation/WalletExportStack';
 import { WalletDescriptor } from '../../class/wallet-descriptor.ts';
+import presentAlert from '../../components/Alert';
 
 type RouteProps = RouteProp<WalletExportStackParamList, 'WalletExport'>;
 
@@ -118,15 +119,15 @@ const WalletExport: React.FC = () => {
     const { height, width } = e.nativeEvent.layout;
 
     const isPortrait = height > width;
-    const maxQRSize = 400;
+    const maxQRSize = 340;
 
     if (isPortrait) {
-      const heightBasedSize = Math.min(height * 0.5, maxQRSize);
-      const widthBasedSize = width * 0.75 - HORIZONTAL_PADDING * 2;
+      const heightBasedSize = Math.min(height * 0.42, maxQRSize);
+      const widthBasedSize = width * 0.66 - HORIZONTAL_PADDING * 2;
       setQRCodeSize(Math.min(heightBasedSize, widthBasedSize));
     } else {
-      const heightBasedSize = Math.min(height * 0.6, maxQRSize);
-      const widthBasedSize = width * 0.35;
+      const heightBasedSize = Math.min(height * 0.5, maxQRSize);
+      const widthBasedSize = width * 0.3;
       setQRCodeSize(Math.min(heightBasedSize, widthBasedSize));
     }
   }, []);
@@ -134,6 +135,7 @@ const WalletExport: React.FC = () => {
   const handleCopy = useCallback(() => {
     Clipboard.setString(secrets[0]);
     triggerHapticFeedback(HapticFeedbackTypes.Selection);
+    presentAlert({ message: loc.wallets.xpub_copiedToClipboard });
   }, [secrets]);
 
   const Scroll = useCallback(
@@ -226,43 +228,44 @@ const styles = StyleSheet.create({
   scrollViewContent: {
     justifyContent: 'center',
     flexGrow: 1,
-    gap: 32,
+    gap: 16,
     paddingHorizontal: HORIZONTAL_PADDING,
-    paddingTop: 10,
-    paddingBottom: 20,
+    paddingTop: 6,
+    paddingBottom: 12,
   },
   warningBox: {
     alignItems: 'center',
-    padding: 12,
+    padding: 10,
     borderRadius: 10,
     alignSelf: 'stretch',
     flexDirection: 'row',
     gap: 8,
   },
   warning: {
-    fontSize: 20,
+    fontSize: 16,
     color: 'white',
   },
   scanText: {
     textAlign: 'center',
-    fontSize: 20,
+    fontSize: 18,
   },
   writeText: {
     textAlign: 'center',
-    fontSize: 17,
+    fontSize: 15,
   },
   manualText: {
     textAlign: 'center',
-    fontSize: 20,
-    marginBottom: 10,
+    fontSize: 18,
+    marginBottom: 6,
   },
   typeText: {
     textAlign: 'center',
-    fontSize: 17,
+    fontSize: 15,
     color: 'grey',
   },
   copyRoot: {
-    padding: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     borderRadius: 8,
     flexDirection: 'row',
   },
@@ -274,7 +277,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 8,
   },
   copyText: {
-    fontSize: 17,
+    fontSize: 15,
   },
   qrCodeContainer: {
     alignItems: 'center',

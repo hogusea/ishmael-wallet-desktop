@@ -93,7 +93,7 @@ const QRCodeComponent: React.FC<QRCodeComponentProps> = ({
   const renderQRCode = (
     <QRCode
       value={value}
-      {...(isLogoRendered ? { logo: require('../img/qr-code.png') } : {})}
+      {...(isLogoRendered ? { logo: require('../img/ishmael-logo.png') } : {})}
       size={newSize}
       logoSize={logoSize}
       color="#000000"
