@@ -28,6 +28,7 @@ import { getLNDHub } from '../helpers/lndHub';
 import { LightningArkWallet } from './wallets/lightning-ark-wallet.ts';
 import { hexToUint8Array, uint8ArrayToHex } from '../blue_modules/uint8array-extras';
 import { HDTaprootWallet } from './wallets/hd-taproot-wallet';
+import { isDesktop } from '../blue_modules/environment';
 
 let usedBucketNum: boolean | number = false;
 let savingInProgress = 0; // its both a flag and a counter of attempts to write to disk
@@ -120,11 +121,14 @@ export class BlueApp {
    * used for cli/tests
    */
   setItem = (key: string, value: any): Promise<any> => {
-    if (isReactNative) {
-      return RNSecureKeyStore.set(key, value, { accessible: ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY });
-    } else {
+    if (!isReactNative || isDesktop) {
       return AsyncStorage.setItem(key, value);
     }
+
+    return RNSecureKeyStore.set(key, value, { accessible: ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY }).catch((error: any) => {
+      console.warn('secure storage set failed, falling back to AsyncStorage for key', key, error?.message || error);
+      return AsyncStorage.setItem(key, value);
+    });
   };
 
   /**
@@ -132,11 +136,14 @@ export class BlueApp {
    * used for cli/tests
    */
   getItem = (key: string): Promise<any> => {
-    if (isReactNative) {
-      return RNSecureKeyStore.get(key);
-    } else {
+    if (!isReactNative || isDesktop) {
       return AsyncStorage.getItem(key);
     }
+
+    return RNSecureKeyStore.get(key).catch((error: any) => {
+      console.warn('secure storage get failed, falling back to AsyncStorage for key', key, error?.message || error);
+      return AsyncStorage.getItem(key);
+    });
   };
 
   getItemWithFallbackToRealm = async (key: string): Promise<any | null> => {
@@ -301,14 +308,34 @@ export class BlueApp {
   async openRealmKeyValue(): Promise<Realm> {
     const cacheFolderPath = RNFS.CachesDirectoryPath; // Path to cache folder
     const service = 'realm_encryption_key';
-    let password;
-    const credentials = await Keychain.getGenericPassword({ service });
-    if (credentials) {
-      password = credentials.password;
-    } else {
+    const fallbackService = 'realm_encryption_key_fallback';
+    let password: string | null | undefined;
+    try {
+      const credentials = await Keychain.getGenericPassword({ service });
+      if (credentials && typeof credentials.password === 'string' && credentials.password.length > 0) {
+        password = credentials.password;
+      }
+    } catch (error: any) {
+      console.warn('keychain read failed for realm key, trying AsyncStorage fallback:', error?.message || error);
+    }
+
+    if (!password) {
+      try {
+        password = await AsyncStorage.getItem(fallbackService);
+      } catch (error: any) {
+        console.warn('async storage read failed for realm key fallback:', error?.message || error);
+      }
+    }
+
+    if (!password) {
       const buf = await randomBytes(64);
       password = uint8ArrayToHex(buf);
-      await Keychain.setGenericPassword(service, password, { service });
+      try {
+        await Keychain.setGenericPassword(service, password, { service });
+      } catch (error: any) {
+        console.warn('keychain write failed for realm key, storing fallback in AsyncStorage:', error?.message || error);
+        await AsyncStorage.setItem(fallbackService, password);
+      }
     }
 
     const buf = hexToUint8Array(password);
@@ -724,14 +751,27 @@ export class BlueApp {
       await this.setItem(BlueApp.FLAG_ENCRYPTED, this.cachedPassword ? '1' : '');
 
       // now, backing up same data in realm:
-      const realmkeyValue = await this.openRealmKeyValue();
-      this.saveToRealmKeyValue(realmkeyValue, 'data', JSON.stringify(data));
-      this.saveToRealmKeyValue(realmkeyValue, BlueApp.FLAG_ENCRYPTED, this.cachedPassword ? '1' : '');
-      realmkeyValue.close();
+      try {
+        const realmkeyValue = await this.openRealmKeyValue();
+        try {
+          this.saveToRealmKeyValue(realmkeyValue, 'data', JSON.stringify(data));
+          this.saveToRealmKeyValue(realmkeyValue, BlueApp.FLAG_ENCRYPTED, this.cachedPassword ? '1' : '');
+        } finally {
+          realmkeyValue.close();
+        }
+      } catch (realmError: any) {
+        // Do not fail the whole save flow: primary storage write already succeeded.
+        console.warn('realm backup write failed:', realmError?.message || realmError);
+        if ((realmError?.message || '').includes('Realm file decryption failed')) {
+          console.warn('purging realm key-value database file');
+          this.purgeRealmKeyValueFile();
+        }
+      }
     } catch (error: any) {
-      console.error('save to disk exception:', error.message);
-      presentAlert({ message: 'save to disk exception: ' + error.message });
-      if (error.message.includes('Realm file decryption failed')) {
+      const message = error?.message || String(error);
+      console.error('save to disk exception:', message);
+      presentAlert({ message: 'save to disk exception: ' + message });
+      if (message.includes('Realm file decryption failed')) {
         console.warn('purging realm key-value database file');
         this.purgeRealmKeyValueFile();
       }
