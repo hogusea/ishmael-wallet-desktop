@@ -8,3 +8,7 @@
 
 #import <RNCPushNotificationIOS.h>
 #import "RNQuickActionManager.h"
+
+void BWInstallGlobalTorProxyConfigurationProvider(void);
+void BWSetGlobalTorProxyEnabled(BOOL enabled);
+BOOL BWIsGlobalTorProxyEnabled(void);

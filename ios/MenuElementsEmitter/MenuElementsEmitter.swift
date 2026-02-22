@@ -70,16 +70,38 @@ class MenuElementsEmitter: RCTEventEmitter {
         }
     }
 
+    @objc
+    func bootstrapTorRuntimeIfNeeded() {
+        #if targetEnvironment(macCatalyst)
+        let shouldEnableTor = UserDefaults.standard.string(forKey: "electrum_tor_enabled") == "1"
+        setGlobalTorProxyEnabled(shouldEnableTor)
+
+        guard shouldEnableTor else {
+            return
+        }
+
+        startTorRuntime({ _ in
+            NSLog("[TorRuntime] Bootstrapped embedded Tor runtime from stored preference")
+        }, rejecter: { code, message, _ in
+            NSLog("[TorRuntime] Bootstrap failed (%@): %@", code, message ?? "unknown_error")
+            BWSetGlobalTorProxyEnabled(false)
+        })
+        #endif
+    }
+
     @objc(startTorRuntime:rejecter:)
     func startTorRuntime(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
         #if targetEnvironment(macCatalyst)
         DispatchQueue.global(qos: .utility).async {
+            self.setGlobalTorProxyEnabled(true)
+
             if let process = MenuElementsEmitter.torProcess, process.isRunning {
                 resolve(true)
                 return
             }
 
             guard let torBinaryURL = self.bundledTorBinaryURL() else {
+                self.setGlobalTorProxyEnabled(false)
                 reject("TOR_BINARY_MISSING", "Bundled Tor binary was not found.", nil)
                 return
             }
@@ -130,6 +152,7 @@ class MenuElementsEmitter: RCTEventEmitter {
                 let deadline = Date().addingTimeInterval(12.0)
                 while Date() < deadline {
                     if !process.isRunning {
+                        self.setGlobalTorProxyEnabled(false)
                         reject("TOR_EXITED_EARLY", "Tor process exited before opening SOCKS port.", nil)
                         return
                     }
@@ -145,8 +168,10 @@ class MenuElementsEmitter: RCTEventEmitter {
                     process.terminate()
                 }
                 MenuElementsEmitter.torProcess = nil
+                self.setGlobalTorProxyEnabled(false)
                 reject("TOR_START_TIMEOUT", "Tor did not open 127.0.0.1:9050 in time.", nil)
             } catch {
+                self.setGlobalTorProxyEnabled(false)
                 reject("TOR_START_FAILED", error.localizedDescription, error as NSError)
             }
         }
@@ -160,6 +185,7 @@ class MenuElementsEmitter: RCTEventEmitter {
         #if targetEnvironment(macCatalyst)
         DispatchQueue.global(qos: .utility).async {
             guard let process = MenuElementsEmitter.torProcess else {
+                self.setGlobalTorProxyEnabled(false)
                 resolve(true)
                 return
             }
@@ -176,6 +202,7 @@ class MenuElementsEmitter: RCTEventEmitter {
             }
 
             MenuElementsEmitter.torProcess = nil
+            self.setGlobalTorProxyEnabled(false)
             resolve(true)
         }
         #else
@@ -202,18 +229,28 @@ class MenuElementsEmitter: RCTEventEmitter {
             status["running"] = true
             status["pid"] = Int(process.processIdentifier)
         }
+        status["proxyEnabled"] = isGlobalTorProxyEnabled()
 
         resolve(status)
         #else
         resolve([
             "available": false,
             "running": false,
+            "proxyEnabled": false,
             "reason": "platform_not_supported"
         ])
         #endif
     }
 
     #if targetEnvironment(macCatalyst)
+    private func setGlobalTorProxyEnabled(_ enabled: Bool) {
+        BWSetGlobalTorProxyEnabled(enabled)
+    }
+
+    private func isGlobalTorProxyEnabled() -> Bool {
+        return BWIsGlobalTorProxyEnabled()
+    }
+
     private func bundledTorBinaryURL() -> URL? {
         let fileManager = FileManager.default
         var candidates: [URL] = []
