@@ -1,7 +1,7 @@
 import { DrawerContentScrollView, DrawerContentComponentProps } from '@react-navigation/drawer';
 import { useIsFocused, useNavigationState } from '@react-navigation/native';
-import React, { memo, useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
-import { InteractionManager, StyleSheet, View, ViewStyle, Animated, ScrollView } from 'react-native';
+import React, { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { InteractionManager, StyleSheet, View, ViewStyle, Animated, ScrollView, Pressable, Text, Alert } from 'react-native';
 import { TWallet } from '../../class/wallets/types';
 import { Header } from '../../components/Header';
 import { useTheme } from '../../components/themes';
@@ -11,6 +11,7 @@ import { useStorage } from '../../hooks/context/useStorage';
 import TotalWalletsBalance from '../../components/TotalWalletsBalance';
 import { useSettings } from '../../hooks/context/useSettings';
 import { useExtendedNavigation } from '../../hooks/useExtendedNavigation';
+import * as BlueElectrum from '../../blue_modules/BlueElectrum';
 
 enum WalletActionType {
   SetWallets = 'SET_WALLETS',
@@ -98,7 +99,9 @@ const DrawerList: React.FC<DrawerContentComponentProps> = memo((props: DrawerCon
   const { wallets, selectedWalletID } = useStorage();
   const { colors } = useTheme();
   const isFocused = useIsFocused();
-  const { isTotalBalanceEnabled } = useSettings();
+  const { isTotalBalanceEnabled, isElectrumDisabled } = useSettings();
+  const [isTorEnabled, setIsTorEnabled] = useState(false);
+  const [isTorToggling, setIsTorToggling] = useState(false);
   const prevWalletCount = useRef(wallets.length);
 
   const fadeAnim = useRef(new Animated.Value(1)).current;
@@ -114,6 +117,23 @@ const DrawerList: React.FC<DrawerContentComponentProps> = memo((props: DrawerCon
 
   const scrollViewRef = useRef<ScrollView>(null);
   const lastAddedWalletId = useRef<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    BlueElectrum.isTorEnabled()
+      .then(enabled => {
+        if (isMounted) {
+          setIsTorEnabled(enabled);
+        }
+      })
+      .catch(error => {
+        console.error('[DrawerList] Failed to read Tor mode state:', error);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (wallets.length !== prevWalletCount.current) {
@@ -192,9 +212,20 @@ const DrawerList: React.FC<DrawerContentComponentProps> = memo((props: DrawerCon
   const stylesHook = useMemo(
     () =>
       StyleSheet.create({
-        root: { backgroundColor: colors.elevated } as ViewStyle,
+        scrollContent: { backgroundColor: colors.elevated, flexGrow: 1 } as ViewStyle,
+        section: { backgroundColor: colors.elevated } as ViewStyle,
+        torContainer: {
+          backgroundColor: colors.elevated,
+          borderColor: colors.formBorder,
+        } as ViewStyle,
+        torLabel: {
+          color: colors.foregroundColor,
+        },
+        torDescription: {
+          color: colors.alternativeTextColor,
+        },
       }),
-    [colors.elevated],
+    [colors.alternativeTextColor, colors.elevated, colors.foregroundColor, colors.formBorder],
   );
 
   useEffect(() => {
@@ -233,41 +264,137 @@ const DrawerList: React.FC<DrawerContentComponentProps> = memo((props: DrawerCon
     navigation.navigate('AddWalletRoot');
   }, [navigation]);
 
+  const onToggleTor = useCallback(async () => {
+    if (isTorToggling) return;
+    const nextValue = !isTorEnabled;
+    setIsTorToggling(true);
+
+    try {
+      await BlueElectrum.setTorEnabled(nextValue);
+      setIsTorEnabled(nextValue);
+
+      BlueElectrum.forceDisconnect();
+      if (!isElectrumDisabled) {
+        await BlueElectrum.connectMain();
+      }
+    } catch (error) {
+      console.error('[DrawerList] Failed to toggle Tor mode:', error);
+      Alert.alert(loc.errors.network, loc.settings.electrum_error_connect_tor);
+    } finally {
+      setIsTorToggling(false);
+    }
+  }, [isElectrumDisabled, isTorEnabled, isTorToggling]);
+
   return (
-    <DrawerContentScrollView
-      ref={scrollViewRef}
-      {...props}
-      contentContainerStyle={stylesHook.root}
-      contentInsetAdjustmentBehavior="automatic"
-      automaticallyAdjustContentInsets={true}
-      showsHorizontalScrollIndicator={false}
-      showsVerticalScrollIndicator={false}
-      directionalLockEnabled
-    >
-      <Header leftText={loc.wallets.list_title} onNewWalletPress={onNewWalletPress} isDrawerList />
-      {isTotalBalanceEnabled && (
-        <View style={stylesHook.root}>
-          <TotalWalletsBalance />
-        </View>
-      )}
-      <Animated.View style={{ opacity: fadeAnim }}>
-        <WalletsCarousel
-          data={state.wallets}
-          extraData={[state.wallets, currentSelectedWalletID, state.walletAdded, state.walletRemoved, lastAddedWalletId.current]}
-          onPress={handleClick}
-          handleLongPress={handleLongPress}
-          ref={walletsCarousel}
-          horizontal={false}
-          isFlatList={false}
-          onNewWalletPress={onNewWalletPress}
-          testID="WalletsList"
-          selectedWallet={isWalletsListActive ? undefined : currentSelectedWalletID}
-          scrollEnabled={state.isFocused}
-          animateChanges
-        />
-      </Animated.View>
-    </DrawerContentScrollView>
+    <View style={[styles.drawerRoot, { backgroundColor: colors.elevated }]}>
+      <DrawerContentScrollView
+        ref={scrollViewRef}
+        {...props}
+        contentContainerStyle={stylesHook.scrollContent}
+        contentInsetAdjustmentBehavior="automatic"
+        automaticallyAdjustContentInsets={true}
+        showsHorizontalScrollIndicator={false}
+        showsVerticalScrollIndicator={false}
+        directionalLockEnabled
+      >
+        <Header leftText={loc.wallets.list_title} onNewWalletPress={onNewWalletPress} isDrawerList />
+        {isTotalBalanceEnabled && (
+          <View style={stylesHook.section}>
+            <TotalWalletsBalance />
+          </View>
+        )}
+        <Animated.View style={{ opacity: fadeAnim }}>
+          <WalletsCarousel
+            data={state.wallets}
+            extraData={[state.wallets, currentSelectedWalletID, state.walletAdded, state.walletRemoved, lastAddedWalletId.current]}
+            onPress={handleClick}
+            handleLongPress={handleLongPress}
+            ref={walletsCarousel}
+            horizontal={false}
+            isFlatList={false}
+            onNewWalletPress={onNewWalletPress}
+            testID="WalletsList"
+            selectedWallet={isWalletsListActive ? undefined : currentSelectedWalletID}
+            scrollEnabled={state.isFocused}
+            animateChanges
+          />
+        </Animated.View>
+        <View style={styles.torSpacer} />
+      </DrawerContentScrollView>
+
+      <View style={[styles.torFloatingContainer, stylesHook.torContainer]}>
+        <Pressable
+          onPress={onToggleTor}
+          disabled={isTorToggling}
+          style={({ pressed }) => [styles.torButton, pressed && !isTorToggling ? styles.torButtonPressed : undefined]}
+        >
+          <View style={styles.torHeaderRow}>
+            <Text style={[styles.torLabel, stylesHook.torLabel]}>{loc.settings.tor_quick_toggle}</Text>
+            <View style={[styles.torStatusBadge, isTorEnabled ? styles.torStatusOn : styles.torStatusOff]}>
+              <Text style={styles.torStatusText}>{isTorToggling ? '...' : isTorEnabled ? loc.settings.tor_on : loc.settings.tor_off}</Text>
+            </View>
+          </View>
+          <Text style={[styles.torDescription, stylesHook.torDescription]}>{loc.settings.tor_quick_toggle_description}</Text>
+        </Pressable>
+      </View>
+    </View>
   );
+});
+
+const styles = StyleSheet.create({
+  drawerRoot: {
+    flex: 1,
+  },
+  torSpacer: {
+    height: 120,
+  },
+  torFloatingContainer: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 8,
+  },
+  torButton: {
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  torButtonPressed: {
+    opacity: 0.8,
+  },
+  torHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  torLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  torDescription: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  torStatusBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+  },
+  torStatusOn: {
+    backgroundColor: '#2f8f43',
+  },
+  torStatusOff: {
+    backgroundColor: '#6e7681',
+  },
+  torStatusText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '700',
+  },
 });
 
 export default DrawerList;

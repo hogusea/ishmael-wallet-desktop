@@ -62,6 +62,12 @@ jobs:
             DEVELOPMENT_TEAM="" \
             build | tee -a build/xcodebuild.log
 
+      - name: Install Tor runtime (for bundled on/off toggle)
+        run: |
+          set -euxo pipefail
+          brew install tor
+          tor --version
+
       - name: Package app artifact
         run: |
           set -euxo pipefail
@@ -75,6 +81,49 @@ jobs:
             find build/DerivedData/Build/Products -maxdepth 4 -print || true
             exit 1
           fi
+
+          MACOS_DIR="$APP_PATH/Contents/MacOS"
+          FRAMEWORKS_DIR="$APP_PATH/Contents/Frameworks"
+          RESOURCES_DIR="$APP_PATH/Contents/Resources"
+          TOR_PREFIX="$(brew --prefix tor)"
+          TOR_BIN="$TOR_PREFIX/bin/tor"
+          mkdir -p "$MACOS_DIR" "$FRAMEWORKS_DIR" "$RESOURCES_DIR"
+
+          cp "$TOR_BIN" "$MACOS_DIR/tor"
+          chmod +x "$MACOS_DIR/tor"
+
+          if [ -f "$TOR_PREFIX/share/tor/geoip" ]; then
+            cp "$TOR_PREFIX/share/tor/geoip" "$RESOURCES_DIR/geoip"
+          fi
+          if [ -f "$TOR_PREFIX/share/tor/geoip6" ]; then
+            cp "$TOR_PREFIX/share/tor/geoip6" "$RESOURCES_DIR/geoip6"
+          fi
+
+          # Copy Homebrew-linked dynamic libraries tor depends on and retarget paths into app bundle.
+          changed=1
+          while [ "$changed" -eq 1 ]; do
+            changed=0
+            for target in "$MACOS_DIR/tor" "$FRAMEWORKS_DIR"/*.dylib; do
+              [ -e "$target" ] || continue
+              while read -r dep; do
+                case "$dep" in
+                  /usr/local/*|/opt/homebrew/*)
+                    lib_name="$(basename "$dep")"
+                    bundled_lib="$FRAMEWORKS_DIR/$lib_name"
+                    if [ ! -f "$bundled_lib" ]; then
+                      cp "$dep" "$bundled_lib"
+                      chmod +w "$bundled_lib" || true
+                      install_name_tool -id "@executable_path/../Frameworks/$lib_name" "$bundled_lib" || true
+                      changed=1
+                    fi
+                    install_name_tool -change "$dep" "@executable_path/../Frameworks/$lib_name" "$target" || true
+                    ;;
+                esac
+              done < <(otool -L "$target" | awk 'NR>1 {print $1}')
+            done
+          done
+
+          otool -L "$MACOS_DIR/tor" || true
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" build/artifact/Ishmael-mac-catalyst-app.zip
 
       - name: Upload Mac Catalyst app zip

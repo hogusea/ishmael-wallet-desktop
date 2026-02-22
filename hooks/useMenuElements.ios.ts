@@ -11,9 +11,6 @@ const handlerRegistry = new Map<string, MenuActionHandler>();
 try {
   if (Platform.OS === 'ios' && MenuElementsEmitter) {
     eventEmitter = new NativeEventEmitter(MenuElementsEmitter);
-    if (typeof MenuElementsEmitter.sharedInstance === 'function') {
-      MenuElementsEmitter.sharedInstance();
-    }
   }
 } catch (error) {
   console.warn('Failed to initialize menu emitter:', error);
