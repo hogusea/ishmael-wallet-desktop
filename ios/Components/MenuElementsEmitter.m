@@ -1,10 +1,12 @@
 #import <React/RCTBridgeModule.h>
 #import <React/RCTEventEmitter.h>
 #import <React/RCTHTTPRequestHandler.h>
-#import <CFNetwork/CFNetwork.h>
 #import <objc/runtime.h>
 
 static BOOL BWGlobalTorProxyEnabled = NO;
+static NSString *const BWProxyKeySOCKSEnable = @"SOCKSEnable";
+static NSString *const BWProxyKeySOCKSProxy = @"SOCKSProxy";
+static NSString *const BWProxyKeySOCKSPort = @"SOCKSPort";
 
 static dispatch_queue_t BWGlobalTorProxyStateQueue(void) {
   static dispatch_queue_t queue;
@@ -31,9 +33,9 @@ void BWSetGlobalTorProxyEnabled(BOOL enabled) {
 
 static NSDictionary *BWGlobalTorProxyDictionary(void) {
   return @{
-    (NSString *)kCFNetworkProxiesSOCKSEnable : @YES,
-    (NSString *)kCFNetworkProxiesSOCKSProxy : @"127.0.0.1",
-    (NSString *)kCFNetworkProxiesSOCKSPort : @9050,
+    BWProxyKeySOCKSEnable : @YES,
+    BWProxyKeySOCKSProxy : @"127.0.0.1",
+    BWProxyKeySOCKSPort : @9050,
   };
 }
 
