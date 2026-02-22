@@ -2,10 +2,12 @@ name: Claude Security Review
 
 on:
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 jobs:
   review:
+    if: ${{ github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -16,9 +18,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 실제 마켓플레이스에 등록된 Claude PR Reviewer 액션을 호출합니다.
+      - name: Validate ANTHROPIC_API_KEY
+        run: |
+          if [ -z "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            echo "Missing repository secret: ANTHROPIC_API_KEY"
+            exit 1
+          fi
+
       - name: Claude PR Reviewer
         uses: drillan/claude-pr-reviewer@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_model: "claude-3-5-sonnet-20241022"
