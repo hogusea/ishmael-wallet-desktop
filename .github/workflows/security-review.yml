@@ -10,6 +10,7 @@ jobs:
     if: ${{ github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     permissions:
+      id-token: write
       contents: read
       pull-requests: write
       issues: write
@@ -28,6 +29,8 @@ jobs:
       - name: Claude PR Reviewer
         uses: drillan/claude-pr-reviewer@v1
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           anthropic_model: "claude-3-5-sonnet-20241022"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
