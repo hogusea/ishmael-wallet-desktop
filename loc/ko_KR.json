@@ -248,7 +248,7 @@
     "electrum_offline_mode": "오프라인 모드",
     "electrum_offline_description": "사용가능으로 설정시 지갑은 잔고나 거래내역을 불러오지 않습니다",
     "tor_quick_toggle": "Tor",
-    "tor_quick_toggle_description": "로컬 SOCKS5 프록시(127.0.0.1:9050)를 통한 실험적 네트워크 라우팅입니다.",
+    "tor_quick_toggle_description": "내장 Tor SOCKS5 프록시(127.0.0.1:9050)를 통해 앱 네트워크 트래픽을 라우팅합니다.",
     "tor_on": "ON",
     "tor_off": "OFF",
     "electrum_port": "포트, 보통은 {example}",
