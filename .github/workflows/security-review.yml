@@ -1,25 +1,24 @@
 name: Claude Security Review
 
-# 메인 브랜치로 코드 병합(Pull Request)을 요청할 때만 봇이 작동합니다.
 on:
   pull_request:
     branches: [ "main" ]
 
 jobs:
-  security-audit:
+  review:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write # 클로드가 PR에 코멘트를 달 수 있는 권한
+      pull-requests: write
+      issues: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 클로드 API를 호출하여 변경된 코드의 보안 취약점을 검수합니다.
-      - name: Claude Code Security Audit
-        uses: 패키지/클로드-보안-리뷰-액션@v1 # (사용할 깃허브 액션 패키지명)
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+      # 실제 마켓플레이스에 등록된 Claude PR Reviewer 액션을 호출합니다.
+      - name: Claude PR Reviewer
+        uses: drillan/claude-pr-reviewer@v1
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
