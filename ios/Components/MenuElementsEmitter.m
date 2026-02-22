@@ -5,12 +5,13 @@
 @interface RCT_EXTERN_MODULE(MenuElementsEmitter, RCTEventEmitter)
 
 // Expose the Swift method to JS
-RCT_EXTERN_METHOD(shared)
 RCT_EXTERN_METHOD(openSettings)
 RCT_EXTERN_METHOD(addWalletMenuAction)
 RCT_EXTERN_METHOD(importWalletMenuAction)
 RCT_EXTERN_METHOD(reloadTransactionsMenuAction)
-RCT_EXTERN_METHOD(checkListenerStatus)
+RCT_EXTERN_METHOD(startTorRuntime:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(stopTorRuntime:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(getTorRuntimeStatus:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 
 // Make sure we share the same instance between native UI and JS
 + (BOOL)requiresMainQueueSetup {

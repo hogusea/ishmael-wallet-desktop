@@ -4,6 +4,7 @@ import DefaultPreference from 'react-native-default-preference';
 import RNFS from 'react-native-fs';
 import Realm from 'realm';
 import { sha256 as _sha256 } from '@noble/hashes/sha256';
+import { Buffer } from 'buffer';
 
 import { LegacyWallet, SegwitBech32Wallet, SegwitP2SHWallet, TaprootWallet } from '../class';
 import presentAlert from '../components/Alert';
@@ -11,8 +12,9 @@ import loc from '../loc';
 import { GROUP_IO_BLUEWALLET } from './currency';
 import { ElectrumServerItem } from '../screen/settings/ElectrumSettings';
 import { triggerWarningHapticFeedback } from './hapticFeedback';
-import { AlertButton } from 'react-native';
+import { AlertButton, NativeModules } from 'react-native';
 import { uint8ArrayToHex, stringToUint8Array, hexToUint8Array } from './uint8array-extras/index';
+import * as TorRuntime from './TorRuntime';
 
 const ElectrumClient = require('electrum-client');
 const net = require('net');
@@ -81,7 +83,14 @@ export const ELECTRUM_HOST = 'electrum_host';
 export const ELECTRUM_TCP_PORT = 'electrum_tcp_port';
 export const ELECTRUM_SSL_PORT = 'electrum_ssl_port';
 export const ELECTRUM_SERVER_HISTORY = 'electrum_server_history';
+export const ELECTRUM_TOR_ENABLED = 'electrum_tor_enabled';
 const ELECTRUM_CONNECTION_DISABLED = 'electrum_disabled';
+const TOR_PROXY_HOST = '127.0.0.1';
+const TOR_PROXY_PORT = 9050;
+const SOCKS5_VERSION = 0x05;
+const SOCKS5_CONNECT_COMMAND = 0x01;
+const SOCKS5_AUTH_NONE = 0x00;
+const SOCKS5_ADDRESS_TYPE_DOMAIN = 0x03;
 const storageKey = 'ELECTRUM_PEERS';
 const defaultPeer = { host: 'wallet.mobick.info', ssl: 40009 };
 export const hardcodedPeers: Peer[] = [{ host: 'wallet.mobick.info', ssl: 40009 }];
@@ -100,6 +109,186 @@ let currentPeerIndex = Math.floor(Math.random() * hardcodedPeers.length);
 let latestBlock: { height: number; time: number } | { height: undefined; time: undefined } = { height: undefined, time: undefined };
 const txhashHeightCache: Record<string, number> = {};
 let _realm: Realm | undefined;
+const tcpSocketsNative = NativeModules?.TcpSockets as
+  | {
+      startTLS?: (socketId: number, options: Record<string, unknown>) => void;
+    }
+  | undefined;
+
+type SocketConnectOptions = {
+  port: number;
+  host?: string;
+  localAddress?: string;
+  localPort?: number;
+  interface?: string;
+  reuseAddress?: boolean;
+};
+
+class TorProxySocket extends net.Socket {
+  private pendingEncoding?: string;
+  private targetHost = '';
+  private targetPort = 0;
+  private handshakeState: 'idle' | 'greeting' | 'connect_request' | 'connected' | 'failed' = 'idle';
+  private handshakeBuffer: Buffer = Buffer.alloc(0);
+  private tlsEnabled = false;
+  private tlsOptions: Record<string, unknown> = {};
+
+  enableTorTls(options: Record<string, unknown> = {}) {
+    this.tlsEnabled = true;
+    this.tlsOptions = options;
+    return this;
+  }
+
+  setEncoding(encoding?: string) {
+    if (this.handshakeState === 'greeting' || this.handshakeState === 'connect_request') {
+      this.pendingEncoding = encoding;
+      return this;
+    }
+    return super.setEncoding(encoding);
+  }
+
+  connect(options: SocketConnectOptions, callback?: () => void) {
+    this.targetHost = options.host || 'localhost';
+    this.targetPort = Number(options.port) || 0;
+    this.handshakeState = 'greeting';
+    this.handshakeBuffer = Buffer.alloc(0);
+    const proxyOptions = {
+      ...options,
+      host: TOR_PROXY_HOST,
+      port: TOR_PROXY_PORT,
+    };
+    return super.connect(proxyOptions, callback);
+  }
+
+  emit(eventName: string, ...args: any[]) {
+    if (eventName === 'connect' && this.handshakeState === 'greeting') {
+      const handshakeStart = Buffer.from([SOCKS5_VERSION, 0x01, SOCKS5_AUTH_NONE]);
+      this.write(handshakeStart);
+      return true;
+    }
+
+    if (eventName === 'data' && (this.handshakeState === 'greeting' || this.handshakeState === 'connect_request')) {
+      const data = args[0];
+      const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data as string, 'latin1');
+      this.handleSocksData(chunk);
+      return true;
+    }
+
+    return super.emit(eventName, ...args);
+  }
+
+  private handleSocksData(chunk: Buffer) {
+    this.handshakeBuffer = Buffer.concat([this.handshakeBuffer, chunk]);
+
+    if (this.handshakeState === 'greeting') {
+      if (this.handshakeBuffer.length < 2) return;
+      const version = this.handshakeBuffer[0];
+      const method = this.handshakeBuffer[1];
+      this.handshakeBuffer = this.handshakeBuffer.slice(2);
+
+      if (version !== SOCKS5_VERSION || method !== SOCKS5_AUTH_NONE) {
+        this.failSocksHandshake('SOCKS5 authentication negotiation failed');
+        return;
+      }
+
+      const hostBuffer = Buffer.from(this.targetHost, 'utf8');
+      if (!hostBuffer.length || hostBuffer.length > 255) {
+        this.failSocksHandshake('Invalid SOCKS5 destination host');
+        return;
+      }
+      const upperPortByte = Math.floor(this.targetPort / 256) % 256;
+      const lowerPortByte = this.targetPort % 256;
+
+      const requestBuffer = Buffer.concat([
+        Buffer.from([SOCKS5_VERSION, SOCKS5_CONNECT_COMMAND, 0x00, SOCKS5_ADDRESS_TYPE_DOMAIN, hostBuffer.length]),
+        hostBuffer,
+        Buffer.from([upperPortByte, lowerPortByte]),
+      ]);
+
+      this.handshakeState = 'connect_request';
+      this.write(requestBuffer);
+    }
+
+    if (this.handshakeState === 'connect_request') {
+      if (this.handshakeBuffer.length < 5) return;
+
+      const version = this.handshakeBuffer[0];
+      const replyCode = this.handshakeBuffer[1];
+      const addressType = this.handshakeBuffer[3];
+
+      if (version !== SOCKS5_VERSION) {
+        this.failSocksHandshake('Invalid SOCKS5 response version');
+        return;
+      }
+
+      if (replyCode !== 0x00) {
+        this.failSocksHandshake(`SOCKS5 connect failed with code ${replyCode}`);
+        return;
+      }
+
+      let addressLength: number | undefined;
+      if (addressType === 0x01) {
+        addressLength = 4;
+      } else if (addressType === 0x04) {
+        addressLength = 16;
+      } else if (addressType === 0x03) {
+        if (this.handshakeBuffer.length < 5) return;
+        addressLength = this.handshakeBuffer[4] + 1;
+      } else {
+        this.failSocksHandshake('Unknown SOCKS5 address type');
+        return;
+      }
+
+      const responseLength = 4 + addressLength + 2;
+      if (this.handshakeBuffer.length < responseLength) return;
+
+      this.handshakeBuffer = this.handshakeBuffer.slice(responseLength);
+      this.completeSocksHandshake();
+    }
+  }
+
+  private completeSocksHandshake() {
+    this.handshakeState = 'connected';
+
+    if (this.tlsEnabled) {
+      if (!tcpSocketsNative?.startTLS) {
+        this.failSocksHandshake('TLS over SOCKS5 is not supported on this build');
+        return;
+      }
+      tcpSocketsNative.startTLS(this._id, this.tlsOptions);
+    }
+
+    const encodingToUse = this.pendingEncoding;
+    if (encodingToUse) {
+      super.setEncoding(encodingToUse);
+    }
+    this.pendingEncoding = undefined;
+
+    super.emit('connect');
+
+    if (this.handshakeBuffer.length > 0) {
+      const remainder = this.handshakeBuffer;
+      this.handshakeBuffer = Buffer.alloc(0);
+      super.emit('data', encodingToUse ? remainder.toString(encodingToUse as any) : remainder);
+    }
+  }
+
+  private failSocksHandshake(message: string) {
+    this.handshakeState = 'failed';
+    super.emit('error', new Error(message));
+    this.destroy();
+  }
+}
+
+class TorTlsSocket {
+  constructor(socket: TorProxySocket, options: Record<string, unknown> = {}) {
+    socket.enableTorTls(options);
+    return socket;
+  }
+}
+
+const torNet = { Socket: TorProxySocket };
+const torTls = { TLSSocket: TorTlsSocket };
 
 function bitcoinjs_crypto_sha256(buffer: Uint8Array): Uint8Array {
   return _sha256(buffer);
@@ -197,6 +386,44 @@ export async function setDisabled(disabled = true) {
   return DefaultPreference.set(ELECTRUM_CONNECTION_DISABLED, disabled ? '1' : '');
 }
 
+export async function isTorEnabled(): Promise<boolean> {
+  try {
+    await DefaultPreference.setName(GROUP_IO_BLUEWALLET);
+    const savedValue = await DefaultPreference.get(ELECTRUM_TOR_ENABLED);
+    return savedValue === '1';
+  } catch (error) {
+    console.error('Error getting Tor mode state:', error);
+    return false;
+  }
+}
+
+export async function setTorEnabled(enabled = true) {
+  await DefaultPreference.setName(GROUP_IO_BLUEWALLET);
+  console.log('Setting Tor mode state to:', enabled);
+
+  // On macOS Catalyst builds, start/stop embedded Tor runtime behind the same toggle.
+  const runtimeStatus = await TorRuntime.getStatus();
+  if (runtimeStatus.available) {
+    if (enabled) {
+      const started = runtimeStatus.running ? true : await TorRuntime.start();
+      if (!started) {
+        throw new Error('Failed to start embedded Tor runtime');
+      }
+    } else if (runtimeStatus.running) {
+      await TorRuntime.stop();
+    }
+  }
+
+  return DefaultPreference.set(ELECTRUM_TOR_ENABLED, enabled ? '1' : '');
+}
+
+async function getElectrumNetworkModules() {
+  if (await isTorEnabled()) {
+    return { net: torNet, tls: torTls };
+  }
+  return { net, tls };
+}
+
 function getCurrentPeer() {
   return hardcodedPeers[currentPeerIndex];
 }
@@ -251,6 +478,17 @@ export async function connectMain(): Promise<void> {
     console.log('Electrum connection disabled by user. Skipping connectMain call');
     return;
   }
+
+  if (await isTorEnabled()) {
+    const runtimeStatus = await TorRuntime.getStatus();
+    if (runtimeStatus.available && !runtimeStatus.running) {
+      const started = await TorRuntime.start();
+      if (!started) {
+        console.warn('Embedded Tor runtime was unavailable. Falling back to external local SOCKS proxy if present.');
+      }
+    }
+  }
+
   let usingPeer = getNextPeer();
   const savedPeer = await getSavedPeer();
   if (savedPeer && savedPeer.host && (savedPeer.tcp || savedPeer.ssl)) {
@@ -261,7 +499,14 @@ export async function connectMain(): Promise<void> {
 
   try {
     console.log('begin connection:', JSON.stringify(usingPeer));
-    mainClient = new ElectrumClient(net, tls, usingPeer.ssl || usingPeer.tcp, usingPeer.host, usingPeer.ssl ? 'tls' : 'tcp');
+    const networkModules = await getElectrumNetworkModules();
+    mainClient = new ElectrumClient(
+      networkModules.net,
+      networkModules.tls,
+      usingPeer.ssl || usingPeer.tcp,
+      usingPeer.host,
+      usingPeer.ssl ? 'tls' : 'tcp',
+    );
 
     mainClient.onError = function (e: { message: string }) {
       console.log('electrum mainClient.onError():', e.message);
@@ -1180,7 +1425,8 @@ export const calculateBlockTime = function (height: number): number {
  * @returns {Promise<boolean>} Whether provided host:port is a valid electrum server
  */
 export const testConnection = async function (host: string, tcpPort?: number, sslPort?: number): Promise<boolean> {
-  const client = new ElectrumClient(net, tls, sslPort || tcpPort, host, sslPort ? 'tls' : 'tcp');
+  const networkModules = await getElectrumNetworkModules();
+  const client = new ElectrumClient(networkModules.net, networkModules.tls, sslPort || tcpPort, host, sslPort ? 'tls' : 'tcp');
 
   client.onError = () => {}; // mute
   let timeoutId: NodeJS.Timeout | undefined;
