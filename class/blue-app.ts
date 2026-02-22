@@ -410,6 +410,10 @@ export class BlueApp {
       for (const key of wallets) {
         // deciding which type is wallet and instantiating correct object
         const tempObj = JSON.parse(key);
+        if (isDesktop && tempObj.type !== WatchOnlyWallet.type) {
+          console.warn('Skipping unsupported wallet type for Ishmael desktop:', tempObj.type);
+          continue;
+        }
         let unserializedWallet: TWallet;
         switch (tempObj.type) {
           case SegwitBech32Wallet.type:
