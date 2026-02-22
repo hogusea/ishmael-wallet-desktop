@@ -91,6 +91,41 @@ export class BlueApp {
     this.cachedPassword = false;
   }
 
+  private getDesktopStorageFallbackPath(): string | null {
+    if (!isDesktop || !isReactNative) return null;
+    const basePath = RNFS.LibraryDirectoryPath || RNFS.DocumentDirectoryPath;
+    if (!basePath) return null;
+    return `${basePath}/ishmael-storage-fallback.json`;
+  }
+
+  private async readDesktopStorageFallback(): Promise<Record<string, string>> {
+    const path = this.getDesktopStorageFallbackPath();
+    if (!path) return {};
+    try {
+      const exists = await RNFS.exists(path);
+      if (!exists) return {};
+      const raw = await RNFS.readFile(path, 'utf8');
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, string>;
+      }
+    } catch (error: any) {
+      console.warn('desktop storage fallback read failed:', error?.message || error);
+    }
+    return {};
+  }
+
+  private async writeDesktopStorageFallback(data: Record<string, string>): Promise<void> {
+    const path = this.getDesktopStorageFallbackPath();
+    if (!path) return;
+    try {
+      await RNFS.writeFile(path, JSON.stringify(data), 'utf8');
+    } catch (error: any) {
+      console.warn('desktop storage fallback write failed:', error?.message || error);
+    }
+  }
+
   static getInstance(): BlueApp {
     if (!BlueApp._instance) {
       BlueApp._instance = new BlueApp();
@@ -122,7 +157,16 @@ export class BlueApp {
    */
   setItem = (key: string, value: any): Promise<any> => {
     if (!isReactNative || isDesktop) {
-      return AsyncStorage.setItem(key, value);
+      return AsyncStorage.setItem(key, value).catch(async (error: any) => {
+        if (isDesktop && isReactNative) {
+          console.warn('AsyncStorage set failed on desktop, writing fallback for key', key, error?.message || error);
+          const fallbackData = await this.readDesktopStorageFallback();
+          fallbackData[key] = value;
+          await this.writeDesktopStorageFallback(fallbackData);
+          return;
+        }
+        throw error;
+      });
     }
 
     return RNSecureKeyStore.set(key, value, { accessible: ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY }).catch((error: any) => {
@@ -137,7 +181,23 @@ export class BlueApp {
    */
   getItem = (key: string): Promise<any> => {
     if (!isReactNative || isDesktop) {
-      return AsyncStorage.getItem(key);
+      return AsyncStorage.getItem(key)
+        .then(async value => {
+          if ((value === null || typeof value === 'undefined') && isDesktop && isReactNative) {
+            const fallbackData = await this.readDesktopStorageFallback();
+            if (Object.prototype.hasOwnProperty.call(fallbackData, key)) return fallbackData[key];
+          }
+          return value;
+        })
+        .catch(async (error: any) => {
+          if (isDesktop && isReactNative) {
+            console.warn('AsyncStorage get failed on desktop, reading fallback for key', key, error?.message || error);
+            const fallbackData = await this.readDesktopStorageFallback();
+            if (Object.prototype.hasOwnProperty.call(fallbackData, key)) return fallbackData[key];
+            return null;
+          }
+          throw error;
+        });
     }
 
     return RNSecureKeyStore.get(key).catch((error: any) => {
@@ -774,7 +834,7 @@ export class BlueApp {
     } catch (error: any) {
       const message = error?.message || String(error);
       console.error('save to disk exception:', message);
-      presentAlert({ message: 'save to disk exception: ' + message });
+      presentAlert({ message: 'save to disk exception: ' + message, allowRepeat: false });
       if (message.includes('Realm file decryption failed')) {
         console.warn('purging realm key-value database file');
         this.purgeRealmKeyValueFile();
