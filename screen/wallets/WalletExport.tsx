@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { Icon } from '@rneui/themed';
@@ -19,20 +19,23 @@ import useAppState from '../../hooks/useAppState';
 import loc from '../../loc';
 import { WalletExportStackParamList } from '../../navigation/WalletExportStack';
 import { WalletDescriptor } from '../../class/wallet-descriptor.ts';
-import presentAlert from '../../components/Alert';
 
 type RouteProps = RouteProp<WalletExportStackParamList, 'WalletExport'>;
 
 const HORIZONTAL_PADDING = 20;
 
-const CopyBox: React.FC<{ text: string; onPress: () => void }> = ({ text, onPress }) => {
+const CopyBox: React.FC<{ text: string; onPress: () => void; disabled?: boolean }> = ({ text, onPress, disabled = false }) => {
   const { colors } = useTheme();
   const stylesHook = StyleSheet.create({
     copyRoot: { backgroundColor: colors.lightBorder },
   });
 
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [pressed && styles.pressed, styles.copyRoot, stylesHook.copyRoot]}>
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={({ pressed }) => [pressed && !disabled && styles.pressed, styles.copyRoot, stylesHook.copyRoot]}
+    >
       <View style={styles.copyLeft}>
         <BlueText textBreakStrategy="balanced" style={styles.copyText}>
           {text}
@@ -66,6 +69,8 @@ const WalletExport: React.FC = () => {
   const [qrCodeSize, setQRCodeSize] = useState(90);
   const { enableScreenProtect, disableScreenProtect } = useScreenProtect();
   const { currentAppState, previousAppState } = useAppState();
+  const [showCopiedNotice, setShowCopiedNotice] = useState(false);
+  const copiedNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stylesHook = StyleSheet.create({
     root: { backgroundColor: colors.elevated },
   });
@@ -135,8 +140,19 @@ const WalletExport: React.FC = () => {
   const handleCopy = useCallback(() => {
     Clipboard.setString(secrets[0]);
     triggerHapticFeedback(HapticFeedbackTypes.Selection);
-    presentAlert({ message: loc.wallets.xpub_copiedToClipboard });
+    setShowCopiedNotice(true);
+    if (copiedNoticeTimerRef.current) clearTimeout(copiedNoticeTimerRef.current);
+    copiedNoticeTimerRef.current = setTimeout(() => {
+      setShowCopiedNotice(false);
+      copiedNoticeTimerRef.current = null;
+    }, 1200);
   }, [secrets]);
+
+  useEffect(() => {
+    return () => {
+      if (copiedNoticeTimerRef.current) clearTimeout(copiedNoticeTimerRef.current);
+    };
+  }, []);
 
   const Scroll = useCallback(
     // eslint-disable-next-line react/no-unused-prop-types
@@ -211,7 +227,8 @@ const WalletExport: React.FC = () => {
           <BlueText style={styles.writeText}>
             {wallet.type === LightningCustodianWallet.type ? loc.wallets.copy_ln_url : loc.wallets.copy_ln_public}
           </BlueText>
-          <CopyBox text={secret} onPress={handleCopy} />
+          <CopyBox text={secret} onPress={handleCopy} disabled={showCopiedNotice} />
+          {showCopiedNotice ? <BlueText style={styles.copyNotice}>{loc.wallets.xpub_copiedToClipboard}</BlueText> : null}
         </>
       )}
 
@@ -278,6 +295,11 @@ const styles = StyleSheet.create({
   },
   copyText: {
     fontSize: 15,
+  },
+  copyNotice: {
+    textAlign: 'center',
+    fontSize: 14,
+    color: '#2aa96b',
   },
   qrCodeContainer: {
     alignItems: 'center',
