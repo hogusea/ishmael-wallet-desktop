@@ -2,6 +2,7 @@ name: Claude Security Review
 
 on:
   pull_request:
+    # 제목을 feat: 등으로 바꾸면 다시 돌아가게끔 설정 유지
     branches: [ "main" ]
 
 jobs:
@@ -16,9 +17,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 실제 마켓플레이스에 등록된 Claude PR Reviewer 액션을 호출합니다.
       - name: Claude PR Reviewer
         uses: drillan/claude-pr-reviewer@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        with:
+          # 핵심 수정: env가 아니라 with 안에 넣어줘야 봇이 키를 인식합니다!
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # 검수 모델을 최신 소넷으로 고정 (가성비 최강)
+          anthropic_model: "claude-3-5-sonnet-20241022"
