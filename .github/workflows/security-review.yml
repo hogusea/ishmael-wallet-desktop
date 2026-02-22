@@ -2,11 +2,12 @@ name: Claude Security Review
 
 on:
   pull_request:
-    # 제목을 feat: 등으로 바꾸면 다시 돌아가게끔 설정 유지
-    branches: [ "main" ]
+    branches: ["main"]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 jobs:
   review:
+    if: ${{ github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -17,11 +18,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Validate ANTHROPIC_API_KEY
+        run: |
+          if [ -z "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            echo "Missing repository secret: ANTHROPIC_API_KEY"
+            exit 1
+          fi
+
       - name: Claude PR Reviewer
         uses: drillan/claude-pr-reviewer@v1
         with:
-          # 핵심 수정: env가 아니라 with 안에 넣어줘야 봇이 키를 인식합니다!
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          # 검수 모델을 최신 소넷으로 고정 (가성비 최강)
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           anthropic_model: "claude-3-5-sonnet-20241022"
