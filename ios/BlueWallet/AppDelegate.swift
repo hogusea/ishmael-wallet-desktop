@@ -16,6 +16,11 @@ class AppDelegate: RCTAppDelegate, UNUserNotificationCenterDelegate {
         
         // Fix app group UserDefaults initialization
         userDefaultsGroup = UserDefaults.standard
+
+        // Install global URLSession proxy hooks once. We toggle actual proxy state below.
+        BWInstallGlobalTorProxyConfigurationProvider()
+        let shouldUseTorProxy = userDefaultsGroup?.string(forKey: "electrum_tor_enabled") == "1"
+        BWSetGlobalTorProxyEnabled(shouldUseTorProxy)
         
         // Set up device UID observers early
         setupDeviceUIDObservers()
@@ -57,7 +62,10 @@ class AppDelegate: RCTAppDelegate, UNUserNotificationCenterDelegate {
         registerNotificationCategories()
         
         // Access the singleton via the class method
-        _ = MenuElementsEmitter.sharedInstance()
+        let menuElementsEmitter = MenuElementsEmitter.sharedInstance()
+        if shouldUseTorProxy {
+            menuElementsEmitter.bootstrapTorRuntimeIfNeeded()
+        }
         NSLog("[MenuElements] AppDelegate: Initialized emitter singleton")
         
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)

@@ -3,6 +3,7 @@ import { NativeModules, Platform } from 'react-native';
 export type TorRuntimeStatus = {
   available: boolean;
   running: boolean;
+  proxyEnabled?: boolean;
   pid?: number;
   reason?: string;
 };
@@ -35,6 +36,7 @@ export const getStatus = async (): Promise<TorRuntimeStatus> => {
     return {
       available: Boolean(status.available),
       running: Boolean(status.running),
+      proxyEnabled: Boolean(status.proxyEnabled),
       pid: typeof status.pid === 'number' ? status.pid : undefined,
       reason: status.reason,
     };
