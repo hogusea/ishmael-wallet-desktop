@@ -28,6 +28,7 @@ DerivedData
 !debug.keystore
 android/keystore.properties
 android/app/*.jks
+android/app/google-services.json
 # Android/IntelliJ
 #
 build/
