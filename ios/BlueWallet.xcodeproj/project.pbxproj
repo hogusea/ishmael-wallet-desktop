@@ -1083,7 +1083,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "SOURCE_MAP=\"$TMPDIR/$(md5 -qs \"$CONFIGURATION_BUILD_DIR\")-main.jsbundle.map\" ../node_modules/@bugsnag/react-native/bugsnag-react-native-xcode.sh\n\n";
+			shellScript = "if [ \"${EFFECTIVE_PLATFORM_NAME:-}\" = \"-maccatalyst\" ]; then\n  echo \"Skipping Bugsnag source map upload for Mac Catalyst build.\"\n  exit 0\nfi\n\nINFO_PLIST=\"${BUILT_PRODUCTS_DIR}/${INFOPLIST_PATH}\"\nif [ ! -f \"$INFO_PLIST\" ]; then\n  echo \"Skipping Bugsnag source map upload because Info.plist is not ready yet.\"\n  exit 0\nfi\nif ! /usr/libexec/PlistBuddy -c \"Print :CFBundleShortVersionString\" \"$INFO_PLIST\" >/dev/null 2>&1; then\n  echo \"Skipping Bugsnag source map upload because CFBundleShortVersionString is missing.\"\n  exit 0\nfi\n\nSOURCE_MAP=\"$TMPDIR/$(md5 -qs \"$CONFIGURATION_BUILD_DIR\")-main.jsbundle.map\" ../node_modules/@bugsnag/react-native/bugsnag-react-native-xcode.sh\n\n";
 		};
 		BFE56A9A22A21E360BF7A1EC /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
