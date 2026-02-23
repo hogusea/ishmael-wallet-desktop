@@ -12,6 +12,7 @@ class MenuElementsEmitter: RCTEventEmitter {
     #if targetEnvironment(macCatalyst)
     private static let torRuntimeQueue = DispatchQueue(label: "io.hogusea.ishmael.tor.runtime")
     private static var torPid: pid_t = 0
+    private static var torLastStartError: String? = nil
     #endif
     
     override init() {
@@ -96,20 +97,28 @@ class MenuElementsEmitter: RCTEventEmitter {
         MenuElementsEmitter.torRuntimeQueue.async {
             self.setGlobalTorProxyEnabled(true)
             self.reconcileTorProcessState()
+            self.clearTorStartFailure()
+
+            // If any SOCKS5 endpoint is already listening locally, reuse it.
+            if self.isLocalPortOpen(9050) {
+                resolve(true)
+                return
+            }
 
             let currentPid = MenuElementsEmitter.torPid
             if currentPid > 0 {
-                if self.isLocalPortOpen(9050) {
-                    resolve(true)
-                    return
-                }
                 if !self.isProcessRunning(currentPid) {
+                    MenuElementsEmitter.torPid = 0
+                } else {
+                    // Runtime state looks inconsistent (pid exists but SOCKS not reachable). Restart cleanly.
+                    self.terminateProcess(currentPid)
                     MenuElementsEmitter.torPid = 0
                 }
             }
 
             guard let torBinaryURL = self.bundledTorBinaryURL() else {
                 self.setGlobalTorProxyEnabled(false)
+                self.recordTorStartFailure(code: "TOR_BINARY_MISSING", message: "Bundled Tor binary was not found.")
                 reject("TOR_BINARY_MISSING", "Bundled Tor binary was not found.", nil)
                 return
             }
@@ -117,6 +126,7 @@ class MenuElementsEmitter: RCTEventEmitter {
             do {
                 try self.ensureExecutablePermissions(for: torBinaryURL)
                 let dataDirectory = try self.torDataDirectoryURL()
+                self.removeStaleTorLockFile(in: dataDirectory)
 
                 var arguments = [
                     "--ClientOnly", "1",
@@ -147,11 +157,13 @@ class MenuElementsEmitter: RCTEventEmitter {
                     if !self.isProcessRunning(pid) {
                         MenuElementsEmitter.torPid = 0
                         self.setGlobalTorProxyEnabled(false)
+                        self.recordTorStartFailure(code: "TOR_EXITED_EARLY", message: "Tor process exited before opening SOCKS port.")
                         reject("TOR_EXITED_EARLY", "Tor process exited before opening SOCKS port.", nil)
                         return
                     }
 
                     if self.isLocalPortOpen(9050) {
+                        self.clearTorStartFailure()
                         resolve(true)
                         return
                     }
@@ -161,10 +173,12 @@ class MenuElementsEmitter: RCTEventEmitter {
                 self.terminateProcess(pid)
                 MenuElementsEmitter.torPid = 0
                 self.setGlobalTorProxyEnabled(false)
+                self.recordTorStartFailure(code: "TOR_START_TIMEOUT", message: "Tor did not open 127.0.0.1:9050 in time.")
                 reject("TOR_START_TIMEOUT", "Tor did not open 127.0.0.1:9050 in time.", nil)
             } catch {
                 MenuElementsEmitter.torPid = 0
                 self.setGlobalTorProxyEnabled(false)
+                self.recordTorStartFailure(code: "TOR_START_FAILED", message: error.localizedDescription)
                 reject("TOR_START_FAILED", error.localizedDescription, error as NSError)
             }
         }
@@ -183,6 +197,7 @@ class MenuElementsEmitter: RCTEventEmitter {
             }
 
             MenuElementsEmitter.torPid = 0
+            self.clearTorStartFailure()
             self.setGlobalTorProxyEnabled(false)
             resolve(true)
         }
@@ -214,6 +229,12 @@ class MenuElementsEmitter: RCTEventEmitter {
                 status["pid"] = Int(pid)
             }
             status["proxyEnabled"] = self.isGlobalTorProxyEnabled()
+            if status["running"] as? Bool != true, let lastError = MenuElementsEmitter.torLastStartError {
+                if status["reason"] == nil {
+                    status["reason"] = lastError
+                }
+                status["lastError"] = lastError
+            }
             resolve(status)
         }
         #else
@@ -244,6 +265,14 @@ class MenuElementsEmitter: RCTEventEmitter {
         }
     }
 
+    private func clearTorStartFailure() {
+        MenuElementsEmitter.torLastStartError = nil
+    }
+
+    private func recordTorStartFailure(code: String, message: String) {
+        MenuElementsEmitter.torLastStartError = "\(code): \(message)"
+    }
+
     private func bundledTorBinaryURL() -> URL? {
         let fileManager = FileManager.default
         var candidates: [URL] = []
@@ -272,6 +301,12 @@ class MenuElementsEmitter: RCTEventEmitter {
         let torDirectory = appSupport.appendingPathComponent("IshmaelTor", isDirectory: true)
         try FileManager.default.createDirectory(at: torDirectory, withIntermediateDirectories: true)
         return torDirectory
+    }
+
+    private func removeStaleTorLockFile(in directory: URL) {
+        let lockFile = directory.appendingPathComponent("lock")
+        guard FileManager.default.fileExists(atPath: lockFile.path) else { return }
+        try? FileManager.default.removeItem(at: lockFile)
     }
 
     private func ensureExecutablePermissions(for fileURL: URL) throws {

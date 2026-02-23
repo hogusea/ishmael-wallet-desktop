@@ -279,7 +279,8 @@ const DrawerList: React.FC<DrawerContentComponentProps> = memo((props: DrawerCon
       }
     } catch (error) {
       console.error('[DrawerList] Failed to toggle Tor mode:', error);
-      Alert.alert(loc.errors.network, loc.settings.electrum_error_connect_tor);
+      const errorMessage = error instanceof Error && error.message ? error.message : loc.settings.electrum_error_connect;
+      Alert.alert(loc.errors.network, errorMessage);
     } finally {
       setIsTorToggling(false);
     }

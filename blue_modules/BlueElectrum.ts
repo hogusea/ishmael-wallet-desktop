@@ -407,7 +407,9 @@ export async function setTorEnabled(enabled = true) {
     if (enabled) {
       const started = runtimeStatus.running ? true : await TorRuntime.start();
       if (!started) {
-        throw new Error('Failed to start embedded Tor runtime');
+        const refreshedStatus = await TorRuntime.getStatus();
+        const reasonSuffix = refreshedStatus.reason ? `: ${refreshedStatus.reason}` : '';
+        throw new Error(`Failed to start embedded Tor runtime${reasonSuffix}`);
       }
     } else if (runtimeStatus.running) {
       await TorRuntime.stop();
@@ -484,7 +486,11 @@ export async function connectMain(): Promise<void> {
     if (runtimeStatus.available && !runtimeStatus.running) {
       const started = await TorRuntime.start();
       if (!started) {
-        console.warn('Embedded Tor runtime was unavailable. Falling back to external local SOCKS proxy if present.');
+        const refreshedStatus = await TorRuntime.getStatus();
+        console.warn(
+          'Embedded Tor runtime failed to start. Falling back to external local SOCKS proxy if present.',
+          refreshedStatus.reason ?? 'unknown_reason',
+        );
       }
     }
   }
