@@ -337,13 +337,25 @@ class MenuElementsEmitter: RCTEventEmitter {
         }
 
         if spawnResult != 0 {
+            let message = posixSpawnErrorDescription(code: spawnResult)
             throw NSError(
                 domain: "TorRuntime",
                 code: Int(spawnResult),
-                userInfo: [NSLocalizedDescriptionKey: "posix_spawn failed with code \(spawnResult)"]
+                userInfo: [NSLocalizedDescriptionKey: message]
             )
         }
         return pid
+    }
+
+    private func posixSpawnErrorDescription(code: Int32) -> String {
+        if code == EBADARCH {
+            return "Bundled Tor binary is incompatible with this Mac CPU architecture (code \(code)). Use the matching app artifact (intel vs arm64)."
+        }
+        if let cString = strerror(code) {
+            let systemError = String(cString: cString)
+            return "posix_spawn failed with code \(code) (\(systemError))"
+        }
+        return "posix_spawn failed with code \(code)"
     }
 
     private func terminateProcess(_ pid: pid_t) {

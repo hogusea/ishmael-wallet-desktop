@@ -5,12 +5,28 @@ on:
 
 jobs:
   build-mac-catalyst:
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13
+            host_arch: x86_64
+            artifact_suffix: intel
+          - runner: macos-latest
+            host_arch: arm64
+            artifact_suffix: arm64
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Show runner architecture
+        run: |
+          set -euxo pipefail
+          echo "Runner: ${{ matrix.runner }}"
+          echo "Detected architecture: $(uname -m)"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -60,6 +76,8 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
+            ARCHS=${{ matrix.host_arch }} \
+            ONLY_ACTIVE_ARCH=YES \
             build | tee -a build/xcodebuild.log
 
       - name: Install Tor runtime (for bundled on/off toggle)
@@ -124,19 +142,20 @@ jobs:
           done
 
           otool -L "$MACOS_DIR/tor" || true
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" build/artifact/Ishmael-mac-catalyst-app.zip
+          ZIP_PATH="build/artifact/Ishmael-mac-catalyst-app-${{ matrix.artifact_suffix }}.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
 
       - name: Upload Mac Catalyst app zip
         uses: actions/upload-artifact@v4
         with:
-          name: ishmael-mac-catalyst-app
-          path: build/artifact/Ishmael-mac-catalyst-app.zip
+          name: ishmael-mac-catalyst-app-${{ matrix.artifact_suffix }}
+          path: build/artifact/Ishmael-mac-catalyst-app-${{ matrix.artifact_suffix }}.zip
           retention-days: 14
 
       - name: Upload xcodebuild log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: xcodebuild-log
+          name: xcodebuild-log-${{ matrix.artifact_suffix }}
           path: build/xcodebuild.log
           retention-days: 14
